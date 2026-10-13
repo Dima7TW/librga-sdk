@@ -679,6 +679,19 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1) {
         ALOGD("dst: Fd/handle = %.2d , buf = %p, mmuFlag = %d, mmuType = %d\n", dstFd, dstBuf, dst->mmuFlag, dstType);
     }
 
+    /* rga3 fixup inverted RGB/BGR order in FBCE */
+    if (dst && dst->rd_mode == fbc_mode &&
+        rga_version_compare(ctx->mDriverVersion, (struct rga_version_t){ 1, 3, 9, {0} }) < 0) {
+        switch (relDstRect.format) {
+        case RK_FORMAT_RGBA_8888:
+            relDstRect.format = RK_FORMAT_BGRA_8888;
+            break;
+        case RK_FORMAT_BGRA_8888:
+            relDstRect.format = RK_FORMAT_RGBA_8888;
+            break;
+        }
+    }
+
     relSrcRect.format = RkRgaCompatibleFormat(relSrcRect.format);
     relDstRect.format = RkRgaCompatibleFormat(relDstRect.format);
     if (isRectValid(relSrc1Rect))
@@ -1321,16 +1334,7 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1) {
     if (src1)
         NormalRgaSetPatActiveInfo(&rgaReg, src1ActW, src1ActH, src1XPos, src1YPos);
 
-    if (dst->color_space_mode & full_csc_mask) {
-        ret = NormalRgaFullColorSpaceConvert(&rgaReg, dst->color_space_mode);
-        if (ret < 0) {
-            ALOGE("Not support full csc mode [%x]\n", dst->color_space_mode);
-            return -EINVAL;
-        }
-
-        if (dst->color_space_mode == rgb2yuv_709_limit)
-            yuvToRgbMode |= 0x3 << 2;
-    } else {
+    {
         if (src1) {
             /* special config for yuv + rgb => rgb */
             /* src0 y2r, src1 bupass, dst bupass */
@@ -1369,7 +1373,17 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1) {
         if(dst->color_space_mode > 0)
             yuvToRgbMode = dst->color_space_mode;
     }
+    
+    if (dst->color_space_mode & full_csc_mask) {
+        ret = NormalRgaFullColorSpaceConvert(&rgaReg, dst->color_space_mode);
+        if (ret < 0) {
+            ALOGE("Not support full csc mode [%x]\n", dst->color_space_mode);
+            return -EINVAL;
+        }
 
+        if (dst->color_space_mode == rgb2yuv_709_limit)
+            yuvToRgbMode |= 0x3 << 2;
+    }
     /* mode
      * interp:set different algorithm to scale.
      * rotateMode:rotation mode
